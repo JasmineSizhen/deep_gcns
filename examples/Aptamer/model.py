@@ -89,7 +89,7 @@ class DeeperGCN(torch.nn.Module):
         # self.atom_encoder = AtomEncoder(emb_dim=hidden_channels, optional_full_atom_features_dims=[6])
         self.atom_encoder = nn.Embedding(6, hidden_channels)
         # position embedding
-        self.pos_encoder = nn.Embedding(218, hidden_channels)
+        self.pos_encoder = nn.Embedding(40, hidden_channels)
 
         if not self.conv_encode_edge:
             self.bond_encoder = BondEncoder(emb_dim=hidden_channels)
@@ -175,7 +175,7 @@ class DeeperGCN(torch.nn.Module):
         else:
             raise Exception('Unknown block Type')
 
-        return self.node_pred_linear(h_graph)# .squeeze()
+        return self.node_pred_linear(h)# .squeeze()
 
     def print_params(self, epoch=None, final=False):
 

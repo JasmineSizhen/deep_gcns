@@ -20,7 +20,7 @@ cls_criterion = torch.nn.BCEWithLogitsLoss()
 reg_criterion = torch.nn.MSELoss()
 
 ## NGS dataset
-enc_dict = {"[MASK]": 0, "A": 1, "T": 2, "G": 3, "C": 4, "N": 5}
+enc_dict = {"[MASK]": 0, "A": 1, "P": 2, "G": 3, "C": 4, "N": 5}
 
 def parse_mfe_fa(file_path):
     with open(file_path, 'r') as file:
@@ -50,23 +50,19 @@ def parse_mfe_fa(file_path):
     
     return pd.DataFrame(data)
 
-# Example usage
-file_path = '/root/workdir/data/train.mfe.fa'  # Replace with the path to your file
-parsed_data = parse_mfe_fa(file_path)
-
-
 def encode(df):
     # (TODO) modify the dataframe column names 
     names = df["sequence_id"].values.tolist()
     seqs = df["sequence"].values.tolist()
     strucs = df["secondary_structure"].values.tolist()
-    # ys = df["min_energy"].values.tolist() # not using this for sequence prediction 
     
     data_list = []
     for name, seq, struc in zip(names, seqs, strucs):
         # node feat: nucleotide type
         x = torch.tensor([enc_dict["[MASK]"] for nuc in list(seq)], dtype=torch.long)
         y = torch.tensor([enc_dict[nuc] for nuc in list(seq)], dtype=torch.long)
+        
+        assert len(x) == len(y)
         # edge_weight 
 #         bp_file = os.path.join("/mount/data/ViennaRNA-2.6.4/src/bin", name + "_dp.ps")
 #         bp = {}
@@ -128,10 +124,10 @@ def encode(df):
         edge_attr = torch.ones((edge_index.shape[1], 1), dtype=torch.long)
         
         # position
-        pos = torch.tensor([i for i in range(218)], dtype=torch.long)
+        pos = torch.tensor([i for i in range(len(seq))], dtype=torch.long)
 
         # Data
-        data = Data(x=x, edge_index=edge_index, y=torch.tensor([y], dtype=torch.float), edge_attr=edge_attr, edge_weight=None, pos=pos)
+        data = Data(x=x, edge_index=edge_index, y=y, edge_attr=edge_attr, edge_weight=None, pos=pos)
         data_list.append(data)
         
     return data_list
@@ -145,12 +141,6 @@ def myData(trainfile, validfile):
     print(len(train_dl), len(valid_df))
     return train_dl, valid_dl
 
-    # train_df = df[(df["fold"] != test_fold) & (df["fold"] != val_fold)]
-    # valid_df = df[df["fold"] == val_fold]
-    # test_df  = df[df["fold"] == test_fold]
-    # test_dl  = encode(test_df)
-    # print(len(train_dl), len(valid_df), len(test_dl))
-    # return train_dl, valid_dl, test_dl
         
 def train(model, device, loader, optimizer, task_type, grad_clip=0.):
     loss_list = []
@@ -158,7 +148,10 @@ def train(model, device, loader, optimizer, task_type, grad_clip=0.):
 
     for step, batch in enumerate(loader):
         batch = batch.to(device)
-
+        
+        # print("Input size: ", batch.x.shape)
+        # print("Position size: ", batch.pos.shape)
+        
         if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
             pass
         else:
@@ -224,26 +217,23 @@ def main(args):
     # saving folder
     sub_dir = ''
 
-    trainfile = "/mount/data/UDS-Full_length_mRNA_study/NGS/capping_efficiency_based_on_raw_counts_with_fold_mea.csv"
-    validfile = ""
-    # train_dl, valid_dl, test_dl = myData(data_file, args.val_set, args.test_set)
-    # train_loader = DataLoader(train_dl, batch_size=args.batch_size, shuffle=True)
-    # valid_loader = DataLoader(valid_dl, batch_size=args.batch_size, shuffle=True)
-    # test_loader  = DataLoader(test_dl, batch_size=args.batch_size, shuffle=True)
+    trainfile = "/root/workdir/data/train.mfe.fa"
+    validfile = "/root/workdir/data/val.mfe.fa"
+    
+    print("Batch size = ", args.batch_size)
     
     train_dl, valid_dl = myData(trainfile, validfile)
     train_loader = DataLoader(train_dl, batch_size=args.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dl, batch_size=args.batch_size, shuffle=True)
 
     model = DeeperGCN(args).to(device)
-    # logging.info(model)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     results = {'highest_valid_pear': 0,
-               'valid_spear': 0,
-               'test_pear': 0,
-               'test_spear': 0}
+               'valid_spear': 0,}
+               # 'test_pear': 0,
+               # 'test_spear': 0}
 
     start_time = time.time()
 
@@ -253,28 +243,20 @@ def main(args):
 
         train_pear, train_spear = eval(model, device, train_loader)
         valid_pear, valid_spear = eval(model, device, valid_loader)
-        test_pear, test_spear = eval(model, device, test_loader)
 
         logging.info({'Train': (train_pear, train_spear),
                       'Validation': (valid_pear, valid_spear),
-                      'Test': (test_pear, test_spear)})
-
-        # model.print_params(epoch=epoch)
-        #if train_pear > results['highest_train']:
-        #    results['highest_train'] = train_pear
+                     })
 
         if valid_pear > results['highest_valid_pear']:
             results['highest_valid_pear'] = valid_pear
             results['valid_spear'] = valid_spear
-            results['test_pear'] = test_pear
-            results['test_spear'] = test_spear
+            # results['test_pear'] = test_pear
 
             save_ckpt(model, optimizer,
                       round(epoch_loss, 4), epoch,
                       args.model_save_path,
                       sub_dir, name_post='valid_best')
-
-            # logging.info("%s" % results)
 
     
     logging.info("%s" % results)
