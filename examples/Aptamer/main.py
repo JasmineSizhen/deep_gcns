@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import torch
 from torch_geometric.data import Data
@@ -21,17 +22,51 @@ reg_criterion = torch.nn.MSELoss()
 ## NGS dataset
 enc_dict = {"[MASK]": 0, "A": 1, "T": 2, "G": 3, "C": 4, "N": 5}
 
+def parse_mfe_fa(file_path):
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+    
+    data = []
+    
+    for i in range(0, len(lines), 3):
+        seq_id = lines[i].strip()[1:] 
+        sequence = lines[i+1].strip()
+        structure_line = lines[i+2].strip()
+        
+        structure_match = re.match(r"([.()]+)\s+\(\s*(-?\d+\.\d+)\)", structure_line)
+        if structure_match:
+            structure = structure_match.group(1)
+            min_energy = float(structure_match.group(2))
+        else:
+            structure = None
+            min_energy = None
+        
+        data.append({
+            "sequence_id": seq_id,
+            "sequence": sequence,
+            "secondary_structure": structure,
+            "min_energy": min_energy
+        })
+    
+    return pd.DataFrame(data)
+
+# Example usage
+file_path = '/root/workdir/data/train.mfe.fa'  # Replace with the path to your file
+parsed_data = parse_mfe_fa(file_path)
+
+
 def encode(df):
-    names = df["seqnames"].values.tolist()
-    seqs = df["seq"].values.tolist()
-    strucs = df["MEA_structure"].values.tolist()
-    ys = df["log2FoldChange"].values.tolist()
+    # (TODO) modify the dataframe column names 
+    names = df["sequence_id"].values.tolist()
+    seqs = df["sequence"].values.tolist()
+    strucs = df["secondary_structure"].values.tolist()
+    # ys = df["min_energy"].values.tolist() # not using this for sequence prediction 
     
     data_list = []
-    for name, seq, struc, y in zip(names, seqs, strucs, ys):
+    for name, seq, struc in zip(names, seqs, strucs):
         # node feat: nucleotide type
-        x = torch.tensor([enc_dict[nuc] for nuc in list(seq)], dtype=torch.long)
-        
+        x = torch.tensor([enc_dict["[MASK]"] for nuc in list(seq)], dtype=torch.long)
+        y = torch.tensor([enc_dict[nuc] for nuc in list(seq)], dtype=torch.long)
         # edge_weight 
 #         bp_file = os.path.join("/mount/data/ViennaRNA-2.6.4/src/bin", name + "_dp.ps")
 #         bp = {}
@@ -102,18 +137,20 @@ def encode(df):
     return data_list
 
 
-def myData(data_file, test_fold=1, val_fold=2):
-    df = pd.read_csv(data_file)
-    train_df = df[(df["fold"] != test_fold) & (df["fold"] != val_fold)]
-    valid_df = df[df["fold"] == val_fold]
-    test_df  = df[df["fold"] == test_fold]
-    
+def myData(trainfile, validfile):
+    train_df = parse_mfe_fa(trainfile)
+    valid_df = parse_mfe_fa(validfile)
     train_dl = encode(train_df)
     valid_dl = encode(valid_df)
-    test_dl  = encode(test_df)
-    print(len(train_dl), len(valid_df), len(test_dl))
-        
-    return train_dl, valid_dl, test_dl
+    print(len(train_dl), len(valid_df))
+    return train_dl, valid_dl
+
+    # train_df = df[(df["fold"] != test_fold) & (df["fold"] != val_fold)]
+    # valid_df = df[df["fold"] == val_fold]
+    # test_df  = df[df["fold"] == test_fold]
+    # test_dl  = encode(test_df)
+    # print(len(train_dl), len(valid_df), len(test_dl))
+    # return train_dl, valid_dl, test_dl
         
 def train(model, device, loader, optimizer, task_type, grad_clip=0.):
     loss_list = []
@@ -187,11 +224,16 @@ def main(args):
     # saving folder
     sub_dir = ''
 
-    data_file = "/mount/data/UDS-Full_length_mRNA_study/NGS/capping_efficiency_based_on_raw_counts_with_fold_mea.csv"
-    train_dl, valid_dl, test_dl = myData(data_file, args.val_set, args.test_set)
+    trainfile = "/mount/data/UDS-Full_length_mRNA_study/NGS/capping_efficiency_based_on_raw_counts_with_fold_mea.csv"
+    validfile = ""
+    # train_dl, valid_dl, test_dl = myData(data_file, args.val_set, args.test_set)
+    # train_loader = DataLoader(train_dl, batch_size=args.batch_size, shuffle=True)
+    # valid_loader = DataLoader(valid_dl, batch_size=args.batch_size, shuffle=True)
+    # test_loader  = DataLoader(test_dl, batch_size=args.batch_size, shuffle=True)
+    
+    train_dl, valid_dl = myData(trainfile, validfile)
     train_loader = DataLoader(train_dl, batch_size=args.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dl, batch_size=args.batch_size, shuffle=True)
-    test_loader  = DataLoader(test_dl, batch_size=args.batch_size, shuffle=True)
 
     model = DeeperGCN(args).to(device)
     # logging.info(model)

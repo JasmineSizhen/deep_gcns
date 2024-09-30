@@ -42,7 +42,7 @@ class DeeperGCN(torch.nn.Module):
         norm = args.norm
         mlp_layers = args.mlp_layers
 
-        graph_pooling = args.graph_pooling
+        # graph_pooling = args.graph_pooling
 
 #         print('The number of layers {}'.format(self.num_layers),
 #               'Aggr aggregation method {}'.format(aggr),
@@ -94,16 +94,16 @@ class DeeperGCN(torch.nn.Module):
         if not self.conv_encode_edge:
             self.bond_encoder = BondEncoder(emb_dim=hidden_channels)
 
-        if graph_pooling == "sum":
-            self.pool = global_add_pool
-        elif graph_pooling == "mean":
-            self.pool = global_mean_pool
-        elif graph_pooling == "max":
-            self.pool = global_max_pool
-        else:
-            raise Exception('Unknown Pool Type')
+        # if graph_pooling == "sum":
+        #     self.pool = global_add_pool
+        # elif graph_pooling == "mean":
+        #     self.pool = global_mean_pool
+        # elif graph_pooling == "max":
+        #     self.pool = global_max_pool
+        # else:
+        #     raise Exception('Unknown Pool Type')
 
-        self.graph_pred_linear = torch.nn.Linear(hidden_channels, num_tasks)
+        self.node_pred_linear = torch.nn.Linear(hidden_channels, num_tasks)
 
     def forward(self, input_batch):
         x = input_batch.x
@@ -175,9 +175,7 @@ class DeeperGCN(torch.nn.Module):
         else:
             raise Exception('Unknown block Type')
 
-        h_graph = self.pool(h, batch)
-
-        return self.graph_pred_linear(h_graph)# .squeeze()
+        return self.node_pred_linear(h_graph)# .squeeze()
 
     def print_params(self, epoch=None, final=False):
 
