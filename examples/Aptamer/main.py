@@ -1,5 +1,7 @@
 import re
 import pandas as pd
+import numpy as np
+import random
 import torch
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -50,8 +52,54 @@ def parse_mfe_fa(file_path):
     
     return pd.DataFrame(data)
 
-def encode(df):
-    # (TODO) modify the dataframe column names 
+def generate_mask(sequence, secondary_struct, mask_ratio):
+    """
+    Parameters: 
+    sequence - str, example: AGCCAAAAAPAACACAGCGPGACGCCACCCCPCAACGPPC
+    secondary_struct - str, example: ...............(((((((.........)).)))))
+    mask_ratio - float, number between [0, 1] 
+    Return: 
+    List[token] with mask tokens. 
+    """
+    # locate all the pairs
+    pairs = {}
+    stack = []
+    for indx in range(len(sequence)): 
+        if secondary_struct[indx] == '.': 
+            continue
+        elif secondary_struct[indx] == '(': 
+            stack.append(indx)
+        elif secondary_struct[indx] == ')' and len(stack) != 0:
+            left = stack.pop()
+            right = indx
+            pairs[left] = right
+        else: # catch case of mismatch 
+            print("mismatch ( and ) pairs!")
+    
+    # randomly get masks
+    masked_seq_indx = set()
+    num_element = int(len(sequence) * mask_ratio)
+    mask_selection = np.random.choice(list(range(len(sequence))), num_element, replace=False)
+    mask_selection = [(ms, pairs[ms]) if ms in pairs else ms for ms in mask_selection]
+    random.shuffle(mask_selection)
+    mask_poolsize = sum([2 if type(m) is tuple else 1 for m in mask_selection])
+    while mask_poolsize > num_element: 
+        p = mask_selection.pop()
+        if type(p) is tuple: 
+            masked_seq_indx.add(p[0])
+            masked_seq_indx.add(p[1])
+            mask_poolsize -= 2
+        else: 
+            masked_seq_indx.add(p)
+            mask_poolsize -= 1
+    
+    # generate masked tokens 
+    return [enc_dict['[MASK]'] if i in masked_seq_indx else enc_dict[sequence[i]] for i in range(len(sequence))]
+    
+        
+        
+
+def encode(df, mask_ratio, mask=False):
     names = df["sequence_id"].values.tolist()
     seqs = df["sequence"].values.tolist()
     strucs = df["secondary_structure"].values.tolist()
@@ -59,7 +107,10 @@ def encode(df):
     data_list = []
     for name, seq, struc in zip(names, seqs, strucs):
         # node feat: nucleotide type
-        x = torch.tensor([enc_dict["[MASK]"] for nuc in list(seq)], dtype=torch.long)
+        if not mask:
+            x = torch.tensor([enc_dict["[MASK]"] for nuc in list(seq)], dtype=torch.long)
+        else: 
+            x = torch.tensor(generate_mask(seq, struc, mask_ratio), dtype=torch.long)
         y = torch.tensor([enc_dict[nuc] for nuc in list(seq)], dtype=torch.long)
         
         assert len(x) == len(y)
@@ -133,11 +184,11 @@ def encode(df):
     return data_list
 
 
-def myData(trainfile, validfile):
+def myData(trainfile, validfile, mask_ratio, mask=False):
     train_df = parse_mfe_fa(trainfile)
     valid_df = parse_mfe_fa(validfile)
-    train_dl = encode(train_df)
-    valid_dl = encode(valid_df)
+    train_dl = encode(train_df, mask_ratio, mask)
+    valid_dl = encode(valid_df, mask_ratio, mask)
     print(len(train_dl), len(valid_df))
     return train_dl, valid_dl
 
@@ -222,7 +273,11 @@ def main(args):
     
     print("Batch size = ", args.batch_size)
     
-    train_dl, valid_dl = myData(trainfile, validfile)
+    if args.mask_ratio: 
+        print("Mask ratio = ", args.mask_ratio) 
+        mask = True 
+    
+    train_dl, valid_dl = myData(trainfile, validfile, args.mask_ratio, mask)
     train_loader = DataLoader(train_dl, batch_size=args.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dl, batch_size=args.batch_size, shuffle=True)
 

@@ -42,7 +42,7 @@ class DeeperGCN(torch.nn.Module):
         norm = args.norm
         mlp_layers = args.mlp_layers
 
-        # graph_pooling = args.graph_pooling
+#         graph_pooling = args.graph_pooling
 
 #         print('The number of layers {}'.format(self.num_layers),
 #               'Aggr aggregation method {}'.format(aggr),

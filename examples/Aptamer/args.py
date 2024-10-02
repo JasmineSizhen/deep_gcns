@@ -18,7 +18,8 @@ class ArgsInit(object):
                             help='data split')
         parser.add_argument('--test_set', type=int, default=2,
                             help='data split')
-        
+        parser.add_argument('--mask_ratio', type=float, default=None, 
+                            help='percentage of nucleotides masked during training') 
         parser.add_argument('--num_workers', type=int, default=0,
                             help='number of workers (default: 0)')
         parser.add_argument('--batch_size', type=int, default=32,
